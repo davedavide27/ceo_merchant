@@ -6,7 +6,7 @@ import 'items.dart';
 import 'inventory.dart';
 import 'reports.dart';
 import 'settings.dart';
-
+import 'dashboard.dart';
 
 class Sidebar extends StatefulWidget {
   final int initialSelectedIndex;
@@ -22,6 +22,11 @@ class _SidebarState extends State<Sidebar> {
   late int _selectedIndex;
   int? _userId;
 
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialSelectedIndex;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +58,7 @@ class _SidebarState extends State<Sidebar> {
                     color: null,
                   ),
                 ),
-                _buildDrawerItem(Icons.app_registration, "Register", 0),
+                _buildDrawerItem(Icons.app_registration, "Dashboard", 0),
                 _buildDrawerItem(Icons.layers, "Transactions", 2),
                 _buildDrawerItem(Icons.list, "Items", 5),
                 _buildDrawerItem(Icons.inventory, "Inventory", 6),
@@ -94,7 +99,9 @@ class _SidebarState extends State<Sidebar> {
 
         Widget nextScreen;
         switch (title) {
-
+          case "Dashboard":
+            nextScreen = DashboardScreen();
+            break;
           case "Transactions":
             nextScreen = TransactionsScreen();
             break;
@@ -126,8 +133,8 @@ class _SidebarState extends State<Sidebar> {
             pageBuilder: (context, animation, secondaryAnimation) => nextScreen,
             transitionsBuilder:
                 (context, animation, secondaryAnimation, child) {
-              return child;
-            },
+                  return child;
+                },
           ),
         );
       },

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'sidebar.dart';
+import '../local_database_helper.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -12,6 +13,8 @@ class TransactionsScreen extends StatefulWidget {
 }
 
 class _TransactionsScreenState extends State<TransactionsScreen> {
+  late IOWebSocketChannel _channel;
+  late LocalDatabaseHelper _databaseHelper;
   Map<String, List<Map<String, dynamic>>> groupedTransactions = {};
   Map<String, dynamic>? selectedTransaction;
   bool isLoading = false;
@@ -21,6 +24,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   @override
   void initState() {
     super.initState();
+    _databaseHelper = LocalDatabaseHelper();
     _connectToWebSocket();
   }
 
@@ -41,13 +45,31 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       return;
     }
 
+    try {
+      final uri = Uri.parse(websocketUrl);
+      _channel = IOWebSocketChannel.connect(uri);
+
+      _channel.stream.listen(
+        (message) => _handleServerMessage(message),
+        onDone: () => print('WebSocket connection closed'),
+        onError: (error) => print('WebSocket error: $error'),
+      );
+
+      _fetchTransactions();
+    } catch (e) {
+      print('WebSocket initialization error: $e');
+      setState(() => isLoading = false);
+    }
   }
 
   Future<String?> _fetchBusinessNameFromDB() async {
-    // Simulate fetching business name from local database
-    // Replace this with actual database query logic
-    await Future.delayed(const Duration(seconds: 1));
-    return 'My Business'; // Example business name
+    try {
+      final user = await _databaseHelper.getUser();
+      return user?['business_name'];
+    } catch (e) {
+      print('Error fetching business name from database: $e');
+      return null;
+    }
   }
 
   void _fetchTransactions() {
@@ -56,7 +78,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       return;
     }
 
-
+    _channel.sink.add(
+      jsonEncode({'type': 'fetch_transactions', 'business_name': businessName}),
+    );
   }
 
   void _fetchReceiptDetails(int receiptNumber) {
@@ -65,6 +89,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       return;
     }
 
+    _channel.sink.add(
+      jsonEncode({
+        'type': 'get_receipt_data',
+        'business_name': businessName,
+        'receipt_number': receiptNumber,
+      }),
+    );
   }
 
   void _handleServerMessage(dynamic message) {
@@ -120,31 +151,34 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   @override
   Widget build(BuildContext context) {
     final isPortrait = MediaQuery.of(context).size.width < 600;
-    
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.orange[800],
         iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
-          showDetails && isPortrait 
-            ? selectedTransaction != null
-              ? 'Receipt #${selectedTransaction!['receipt_number']}'
-              : 'Receipt Details'
-            : 'Transactions',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          showDetails && isPortrait
+              ? selectedTransaction != null
+                    ? 'Receipt #${selectedTransaction!['receipt_number']}'
+                    : 'Receipt Details'
+              : 'Transactions',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         leading: showDetails && isPortrait
-          ? IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: _closeDetails,
-            )
-          : null,
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _closeDetails,
+              )
+            : null,
         elevation: 4,
       ),
-      drawer: !isPortrait || !showDetails ? Sidebar(initialSelectedIndex: 2) : null,
-      body: isPortrait
-        ? _buildPortraitLayout()
-        : _buildLandscapeLayout(),
+      drawer: !isPortrait || !showDetails
+          ? Sidebar(initialSelectedIndex: 2)
+          : null,
+      body: isPortrait ? _buildPortraitLayout() : _buildLandscapeLayout(),
     );
   }
 
@@ -152,11 +186,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     return Row(
       children: [
         // Left Panel - Transaction List
-        Expanded(
-          flex: 2,
-          child: _buildTransactionList(),
-        ),
-        
+        Expanded(flex: 2, child: _buildTransactionList()),
+
         // Right Panel - Transaction Details
         Expanded(
           flex: 3,
@@ -171,11 +202,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   Widget _buildPortraitLayout() {
     return showDetails
-      ? Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: _buildTransactionDetail(),
-        )
-      : _buildTransactionList();
+        ? Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: _buildTransactionDetail(),
+          )
+        : _buildTransactionList();
   }
 
   Widget _buildTransactionList() {
@@ -208,7 +239,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   prefixIcon: Icon(Icons.search, color: Colors.orange[800]),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(
-                      vertical: 16, horizontal: 16),
+                    vertical: 16,
+                    horizontal: 16,
+                  ),
                 ),
               ),
             ),
@@ -216,35 +249,37 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           Expanded(
             child: isLoading
                 ? const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.orange,
-                    ),
+                    child: CircularProgressIndicator(color: Colors.orange),
                   )
                 : groupedTransactions.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.receipt_long,
-                                size: 64, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No transactions found',
-                              style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.grey[600]),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.receipt_long,
+                          size: 64,
+                          color: Colors.grey[400],
                         ),
-                      )
-                    : ListView.builder(
-                        itemCount: groupedTransactions.length,
-                        itemBuilder: (context, index) {
-                          final dateKey = groupedTransactions.keys.elementAt(index);
-                          final transactions = groupedTransactions[dateKey]!;
-                          return _buildDateGroup(dateKey, transactions);
-                        },
-                      ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No transactions found',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: groupedTransactions.length,
+                    itemBuilder: (context, index) {
+                      final dateKey = groupedTransactions.keys.elementAt(index);
+                      final transactions = groupedTransactions[dateKey]!;
+                      return _buildDateGroup(dateKey, transactions);
+                    },
+                  ),
           ),
         ],
       ),
@@ -269,176 +304,141 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.receipt,
-                      size: 72, color: Colors.grey[400]),
+                  Icon(Icons.receipt, size: 72, color: Colors.grey[400]),
                   const SizedBox(height: 20),
                   Text(
                     'Select a transaction to view details',
                     style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w500),
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Click on any transaction in the list',
-                    style: TextStyle(
-                        fontSize: 14, color: Colors.grey[500]),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
                   ),
                 ],
               ),
             )
           : isLoading
-              ? const Center(child: CircularProgressIndicator(color: Colors.orange))
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header Section
-                      Center(
-                        child: Column(
+          ? const Center(child: CircularProgressIndicator(color: Colors.orange))
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header Section
+                  Center(
+                    child: Column(
+                      children: [
+                        Text(
+                          '${selectedTransaction!['payment_type']} Receipt',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange[800],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '#${selectedTransaction!['receipt_number']}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          selectedTransaction!['time'].toString().split(' ')[0],
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Info Section
+                  _buildDetailRow(
+                    icon: Icons.payment,
+                    label: 'Payment Type',
+                    value: selectedTransaction!['payment_type'],
+                  ),
+                  _buildDetailRow(
+                    icon: Icons.table_restaurant,
+                    label: 'Table Number',
+                    value: selectedTransaction!['table_number'] ?? 'N/A',
+                  ),
+                  _buildDetailRow(
+                    icon: Icons.confirmation_number,
+                    label: 'Reference Number',
+                    value: selectedTransaction!['reference_number'] ?? 'N/A',
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Items Section
+                  Text(
+                    'ITEMS',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const Divider(height: 24, color: Colors.grey),
+
+                  if (selectedTransaction!['items'] != null &&
+                      (selectedTransaction!['items'] as List).isNotEmpty)
+                    ...(selectedTransaction!['items'] as List).map((item) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              '${selectedTransaction!['payment_type']} Receipt',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange[800],
+                            Expanded(
+                              child: Text(
+                                '${item['quantity']}x ${item['item_name']}',
+                                style: const TextStyle(fontSize: 16),
                               ),
                             ),
-                            const SizedBox(height: 4),
                             Text(
-                              '#${selectedTransaction!['receipt_number']}',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.grey[700],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              selectedTransaction!['time'].toString().split(' ')[0],
-                              style: TextStyle(
+                              '₱${item['price']}',
+                              style: const TextStyle(
                                 fontSize: 16,
-                                color: Colors.grey[600]),
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 24),
-                      
-                      // Info Section
-                      _buildDetailRow(
-                        icon: Icons.payment,
-                        label: 'Payment Type',
-                        value: selectedTransaction!['payment_type'],
-                      ),
-                      _buildDetailRow(
-                        icon: Icons.table_restaurant,
-                        label: 'Table Number',
-                        value: selectedTransaction!['table_number'] ?? 'N/A',
-                      ),
-                      _buildDetailRow(
-                        icon: Icons.confirmation_number,
-                        label: 'Reference Number',
-                        value: selectedTransaction!['reference_number'] ?? 'N/A',
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      // Items Section
-                      Text(
-                        'ITEMS',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      const Divider(height: 24, color: Colors.grey),
-                      
-                      if (selectedTransaction!['items'] != null &&
-                          (selectedTransaction!['items'] as List).isNotEmpty)
-                        ...(selectedTransaction!['items'] as List).map((item) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '${item['quantity']}x ${item['item_name']}',
-                                    style: const TextStyle(fontSize: 16),
-                                  ),
-                                ),
-                                Text(
-                                  '₱${item['price']}',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      
-                      const SizedBox(height: 24),
-                      
-                      // Totals Section
-                      _buildAmountRow('Subtotal', selectedTransaction!['subtotal']),
-                      _buildAmountRow('Discount', selectedTransaction!['discount']),
-                      if (selectedTransaction!['payment_type'] != 'Maya')
-                        ...[
-                          _buildAmountRow('Cash Received', selectedTransaction!['cash_received']),
-                          _buildAmountRow('Change', selectedTransaction!['change']),
-                        ],
-                      const Divider(height: 32, thickness: 1.5),
-                      _buildAmountRow(
-                        'TOTAL',
-                        selectedTransaction!['total'],
-                        isTotal: true,
-                      ),
-                      const SizedBox(height: 32),
-                      
-                      // Action Buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              icon: const Icon(Icons.print, size: 20),
-                              label: const Text('REPRINT RECEIPT'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange[700],
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              onPressed: () {},
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              icon: const Icon(Icons.undo, size: 20),
-                              label: const Text('REFUND'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.grey[200],
-                                foregroundColor: Colors.grey[800],
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              onPressed: () {},
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                      );
+                    }).toList(),
+
+                  const SizedBox(height: 24),
+
+                  // Totals Section
+                  _buildAmountRow('Subtotal', selectedTransaction!['subtotal']),
+                  _buildAmountRow('Discount', selectedTransaction!['discount']),
+                  if (selectedTransaction!['payment_type'] != 'Maya') ...[
+                    _buildAmountRow(
+                      'Cash Received',
+                      selectedTransaction!['cash_received'],
+                    ),
+                    _buildAmountRow('Change', selectedTransaction!['change']),
+                  ],
+                  const Divider(height: 32, thickness: 1.5),
+                  _buildAmountRow(
+                    'TOTAL',
+                    selectedTransaction!['total'],
+                    isTotal: true,
                   ),
-                ),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            ),
     );
   }
 
@@ -484,7 +484,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
               side: BorderSide(
-                color: selectedTransaction?['receipt_number'] ==
+                color:
+                    selectedTransaction?['receipt_number'] ==
                         transaction['receipt_number']
                     ? Colors.orange[300]!
                     : Colors.grey[200]!,
@@ -492,7 +493,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ),
             ),
             child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -533,7 +537,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
-  Widget _buildDetailRow({required IconData icon, required String label, required String value}) {
+  Widget _buildDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -552,10 +560,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           Expanded(
             child: Text(
               value,
-              style: TextStyle(
-                color: Colors.grey[700],
-                fontSize: 16,
-              ),
+              style: TextStyle(color: Colors.grey[700], fontSize: 16),
             ),
           ),
         ],
@@ -592,8 +597,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   @override
   void dispose() {
-    // Close the WebSocket connection if it exists
-    // _channel?.sink.close();
+    _channel.sink.close();
     super.dispose();
   }
 }

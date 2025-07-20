@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext (HTTP) for specific domains -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Replace these with your API hosts -->
+        <domain includeSubdomains="true">http://34.81.55.55:5000</domain>
+    </domain-config>
+
+    <!-- Block all other cleartext traffic (optional) -->
+</network-security-config>
