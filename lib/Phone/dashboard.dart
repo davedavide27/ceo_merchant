@@ -3,10 +3,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'sidebar.dart';
 import '../notifications/notif_modal.dart';
 import '../notifications/user_modal.dart';
 import '../local_database_helper.dart'; // Add this import
+import '../login.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int? userId;
@@ -28,19 +30,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'email': 'loading@example.com',
   };
 
+  late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
+
   @override
   void initState() {
     super.initState();
+
+    flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/notification');
+
+    final InitializationSettings initializationSettings =
+        InitializationSettings(
+          android: initializationSettingsAndroid,
+          // iOS and other platform settings can be added here if needed
+        );
+
+    flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        setState(() {
+          _showNotifications = true;
+          _isFabVisible = false;
+        });
+      },
+      onDidReceiveBackgroundNotificationResponse: null,
+    );
+
+    _requestPermissions();
+
     _notifications = [];
     _loadNotifications();
-    _loadUserData(); // Add this
+    _loadUserData();
     timeago.setLocaleMessages('en', timeago.EnMessages());
+  }
+
+  void _requestPermissions() {
+    flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+    flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          MacOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
   // Add this function to load user data
   Future<void> _loadUserData() async {
     final user = await LocalDatabaseHelper().getUser();
-    if (user != null) {
+    if (user != null && mounted) {
       setState(() {
         _userData = {
           'businessName': user['business_name'] ?? 'My Business',
@@ -50,14 +92,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // Add this logout function
+  // In dashboard.dart
+  // Update the logout function
   Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    // Clear session but keep user data
-    await prefs.setBool('isLoggedIn', false);
+    // Clear user session
+    await LocalDatabaseHelper().clearUserSession();
 
-    // Navigate to login page
-    Navigator.pushReplacementNamed(context, '/login');
+    // Navigate to login screen using root navigator
+    Navigator.of(context, rootNavigator: true).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => Login(
+          updateUserData: (newUserData) {}, // Dummy callback
+          savedEmail: '', // Empty email
+        ),
+      ),
+    );
   }
 
   Future<void> _loadNotifications() async {
@@ -66,16 +115,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (notificationsJson != null) {
       final List<dynamic> decoded = json.decode(notificationsJson);
-      setState(() {
-        _notifications = decoded.map<Map<String, dynamic>>((item) {
-          return {
-            'title': item['title'],
-            'message': item['message'],
-            'time': DateTime.parse(item['time']),
-            'read': item['read'],
-          };
-        }).toList();
-      });
+      if (mounted) {
+        setState(() {
+          _notifications = decoded.map<Map<String, dynamic>>((item) {
+            return {
+              'title': item['title'],
+              'message': item['message'],
+              'time': DateTime.parse(item['time']),
+              'read': item['read'],
+            };
+          }).toList();
+        });
+      }
     }
   }
 
@@ -94,7 +145,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     prefs.setString('notifications', notificationsJson);
   }
 
-  void _addRandomNotification() {
+  void _addRandomNotification() async {
     final random = Random();
     final titles = [
       'New Order',
@@ -123,6 +174,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     });
     _saveNotifications();
+
+    // Show device notification using flutter_local_notifications
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+          'ceo_merchant_channel',
+          'Ceo Merchant Notifications',
+          channelDescription: 'Notification channel for Ceo Merchant app',
+          importance: Importance.high,
+          priority: Priority.high,
+          ticker: 'ticker',
+        );
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+    );
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      title,
+      message,
+      platformChannelSpecifics,
+      payload: jsonEncode({'title': title, 'message': message}),
+    );
   }
 
   @override

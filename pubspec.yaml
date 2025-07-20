@@ -1,5 +1,5 @@
 name: ceo_merchant
-description: "A new Flutter project."
+description: A new Flutter project.
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -34,6 +34,7 @@ dependencies:
   sqflite_common_ffi: ^2.3.4+4
   shared_preferences: ^2.2.2
   timeago: ^3.5.0
+  flutter_local_notifications: ^19.3.1
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -41,6 +42,8 @@ dependencies:
   dotenv: ^4.2.0
   flutter_dotenv: ^5.2.1
   web_socket_channel: ^3.0.3
+
+
 
 dev_dependencies:
   flutter_test:

@@ -130,56 +130,62 @@ class _LoginState extends State<Login> {
                     'email': email,
                   };
 
-                  // Update app state
-                  widget.updateUserData(newUserData);
+                // Update app state
+                widget.updateUserData(newUserData);
+                // Set login flag true on successful login
+                await LocalDatabaseHelper().setLoginFlag(true);
 
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            dashboard.DashboardScreen(userId: userId),
-                      ),
-                    );
-                  });
-                } else {
-                  if (mounted) {
-                    setState(() {
-                      _loginStatus = 'Invalid user data received from server.';
-                      _showLoadingOverlay = false;
-                    });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  // Close any open dialogs
+                  if (Navigator.canPop(context)) {
+                    Navigator.popUntil(context, (route) => route.isFirst);
                   }
-                }
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          dashboard.DashboardScreen(userId: userId),
+                    ),
+                  );
+                });
               } else {
                 if (mounted) {
                   setState(() {
-                    _loginStatus =
-                        response['message'] ??
-                        'Login failed. Please try again.';
+                    _loginStatus = 'Invalid user data received from server.';
                     _showLoadingOverlay = false;
                   });
                 }
               }
-            } else if (response['type'] == 'error') {
+            } else {
               if (mounted) {
                 setState(() {
-                  _loginStatus = response['message'] ?? 'An error occurred.';
+                  _loginStatus =
+                      response['message'] ??
+                      'Login failed. Please try again.';
                   _showLoadingOverlay = false;
                 });
               }
-            } else if (response['type'] == 'ping') {
-              _channel?.sink.add(jsonEncode({'type': 'pong'}));
             }
-          } catch (e) {
+          } else if (response['type'] == 'error') {
             if (mounted) {
               setState(() {
-                _loginStatus = 'Error processing server response: $e';
+                _loginStatus = response['message'] ?? 'An error occurred.';
                 _showLoadingOverlay = false;
               });
             }
+          } else if (response['type'] == 'ping') {
+            _channel?.sink.add(jsonEncode({'type': 'pong'}));
           }
-        },
+        } catch (e) {
+          if (mounted) {
+            setState(() {
+              _loginStatus = 'Error processing server response: $e';
+              _showLoadingOverlay = false;
+            });
+          }
+        }
+      },
         onError: (error) {
           print('WebSocket error: $error');
           if (!mounted) return;

@@ -20,7 +20,7 @@ class MyApp extends StatefulWidget {
   _MyAppState createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Map<String, dynamic>? _userData;
   final LocalDatabaseHelper _dbHelper = LocalDatabaseHelper();
   bool _isLoading = true;
@@ -28,16 +28,27 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    WidgetsBinding.instance.addObserver(this);
+    _loadUserDataAndLoginFlag();
   }
 
-  Future<void> _loadUserData() async {
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _loadUserDataAndLoginFlag() async {
     final user = await _dbHelper.getUser();
+    final isLoggedIn = await _dbHelper.getLoginFlag();
     setState(() {
       _userData = user;
       _isLoading = false;
+      _isLoggedIn = isLoggedIn;
     });
   }
+
+  bool _isLoggedIn = false;
 
   void _updateUserData(Map<String, dynamic> newUserData) async {
     // Update local DB
@@ -47,10 +58,13 @@ class _MyAppState extends State<MyApp> {
       newUserData['business_name'],
       newUserData['email'],
     );
+    // Set login flag true on login
+    await _dbHelper.setLoginFlag(true);
     
     // Update app state
     setState(() {
       _userData = newUserData;
+      _isLoggedIn = true;
     });
   }
 
@@ -74,12 +88,23 @@ class _MyAppState extends State<MyApp> {
         primarySwatch: Colors.orange,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: userId > 0
+      home: (userId > 0 && _isLoggedIn)
           ? dashboard.DashboardScreen(userId: userId)
           : Login(
               updateUserData: _updateUserData,
               savedEmail: email,
             ),
     );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached || state == AppLifecycleState.paused) {
+      // App is closing or going to background, set login flag to false (force logout)
+      _dbHelper.setLoginFlag(false);
+      setState(() {
+        _isLoggedIn = false;
+      });
+    }
   }
 }

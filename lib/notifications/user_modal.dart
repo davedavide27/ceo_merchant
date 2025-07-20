@@ -39,8 +39,8 @@ class _UserModalState extends State<UserModal>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     _offsetAnimation = Tween<Offset>(
-      begin: const Offset(0, -1), // Start above the screen
-      end: Offset.zero, // End at normal position
+      begin: const Offset(0, -1),
+      end: Offset.zero,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     _controller.forward();
@@ -58,8 +58,60 @@ class _UserModalState extends State<UserModal>
   }
 
   Future<void> _handleLogout() async {
-    await _controller.reverse();
-    widget.onLogout();
+    // Show confirmation dialog
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Logout'),
+        content: const Text('Are you sure you want to log out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Log Out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    // Proceed only if confirmed
+    if (confirm == true) {
+      // Close user modal
+      await _controller.reverse();
+      widget.onClose();
+
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 20),
+                Text('Logging out...'),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      // Simulate logout process
+      await Future.delayed(const Duration(seconds: 2));
+
+      // Close loading dialog
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+      // Execute logout callback
+      widget.onLogout();
+    }
   }
 
   @override
