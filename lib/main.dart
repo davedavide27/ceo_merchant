@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'login.dart';
 import 'local_database_helper.dart';
 import 'Phone/dashboard.dart' as dashboard;
+import 'android_background_service.dart';
 
 Future<void> loadEnv() async {
   await dotenv.load();
@@ -12,6 +13,13 @@ Future<void> loadEnv() async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadEnv();
+
+  // Comment out background service initialization to test if it causes build hang
+  // bool hasPermissions = await AndroidBackgroundService.initialize();
+  // if (hasPermissions) {
+  //   await AndroidBackgroundService.enableBackgroundExecution();
+  // }
+
   runApp(MyApp());
 }
 
@@ -25,17 +33,39 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   final LocalDatabaseHelper _dbHelper = LocalDatabaseHelper();
   bool _isLoading = true;
 
+  Timer? _inactivityTimer;
+  static const inactivityDuration = Duration(hours: 1);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadUserDataAndLoginFlag();
+    _startInactivityTimer();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _inactivityTimer?.cancel();
     super.dispose();
+  }
+
+  void _startInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(inactivityDuration, _handleLogout);
+  }
+
+  void _resetInactivityTimer() {
+    _startInactivityTimer();
+  }
+
+  Future<void> _handleLogout() async {
+    await _dbHelper.setLoginFlag(false);
+    setState(() {
+      _isLoggedIn = false;
+      _userData = null;
+    });
   }
 
   Future<void> _loadUserDataAndLoginFlag() async {
@@ -60,12 +90,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     );
     // Set login flag true on login
     await _dbHelper.setLoginFlag(true);
-    
+
     // Update app state
     setState(() {
       _userData = newUserData;
       _isLoggedIn = true;
     });
+    _resetInactivityTimer();
   }
 
   @override
@@ -80,31 +111,29 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         ? int.tryParse(_userData!['user_id'].toString()) ?? 0
         : 0;
     final email = _userData?['email'] ?? '';
-    final businessName = _userData?['business_name'] ?? '';
 
-    return MaterialApp(
-      title: 'Ceo Merchant App',
-      theme: ThemeData(
-        primarySwatch: Colors.orange,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: _resetInactivityTimer,
+      onPanDown: (_) => _resetInactivityTimer(),
+      child: MaterialApp(
+        title: 'Ceo Merchant App',
+        theme: ThemeData(
+          primarySwatch: Colors.orange,
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+        ),
+        home: (userId > 0 && _isLoggedIn)
+            ? dashboard.DashboardScreen(userId: userId)
+            : Login(updateUserData: _updateUserData, savedEmail: email),
       ),
-      home: (userId > 0 && _isLoggedIn)
-          ? dashboard.DashboardScreen(userId: userId)
-          : Login(
-              updateUserData: _updateUserData,
-              savedEmail: email,
-            ),
     );
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached || state == AppLifecycleState.paused) {
-      // App is closing or going to background, set login flag to false (force logout)
-      _dbHelper.setLoginFlag(false);
-      setState(() {
-        _isLoggedIn = false;
-      });
+    if (state == AppLifecycleState.detached) {
+      // App is closing, logout immediately
+      _handleLogout();
     }
   }
 }

@@ -6,6 +6,7 @@ class NotificationModal extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(int) onMarkAsRead;
   final VoidCallback onMarkAllAsRead;
+  final VoidCallback onClearReadNotifications;
 
   const NotificationModal({
     Key? key,
@@ -13,6 +14,7 @@ class NotificationModal extends StatefulWidget {
     required this.onClose,
     required this.onMarkAsRead,
     required this.onMarkAllAsRead,
+    required this.onClearReadNotifications,
   }) : super(key: key);
 
   @override
@@ -193,6 +195,48 @@ class _NotificationModalState extends State<NotificationModal>
                   'Mark all as read',
                   style: TextStyle(color: Colors.teal),
                 ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text('Confirm Clear'),
+                      content: Text(
+                        'Are you sure you want to clear all read notifications?',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: Text(
+                            'Clear',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    final readIndexes = <int>[];
+                    for (int i = 0; i < widget.notifications.length; i++) {
+                      if (widget.notifications[i]['read'] == true) {
+                        readIndexes.add(i);
+                      }
+                    }
+                    if (readIndexes.isNotEmpty) {
+                      // Notify parent to remove read notifications
+                      for (var i in readIndexes.reversed) {
+                        widget.onMarkAsRead(i);
+                      }
+                    }
+                  }
+                },
+                child: Text('Clear all', style: TextStyle(color: Colors.red)),
               ),
             ],
           ),

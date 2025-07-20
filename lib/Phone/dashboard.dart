@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'sidebar.dart';
 import '../notifications/notif_modal.dart';
 import '../notifications/user_modal.dart';
@@ -31,6 +32,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   };
 
   late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
+
+  void _clearReadNotifications() {
+    setState(() {
+      _notifications.removeWhere(
+        (notification) => notification['read'] == true,
+      );
+    });
+    _saveNotifications();
+  }
 
   @override
   void initState() {
@@ -66,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     timeago.setLocaleMessages('en', timeago.EnMessages());
   }
 
-  void _requestPermissions() {
+  void _requestPermissions() async {
     flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
           IOSFlutterLocalNotificationsPlugin
@@ -77,6 +87,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           MacOSFlutterLocalNotificationsPlugin
         >()
         ?.requestPermissions(alert: true, badge: true, sound: true);
+
+    // For Android 13+ (API 33+), request notification permission explicitly using permission_handler
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
   }
 
   // Add this function to load user data
@@ -145,6 +160,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     prefs.setString('notifications', notificationsJson);
   }
 
+  int _notificationIdCounter = 0;
+
   void _addRandomNotification() async {
     final random = Random();
     final titles = [
@@ -189,7 +206,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       android: androidPlatformChannelSpecifics,
     );
     await flutterLocalNotificationsPlugin.show(
-      0,
+      _notificationIdCounter++,
       title,
       message,
       platformChannelSpecifics,
@@ -581,6 +598,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   });
                   _saveNotifications();
                 },
+                // Add the new callback
+                onClearReadNotifications: _clearReadNotifications,
               ),
 
             // User modal
