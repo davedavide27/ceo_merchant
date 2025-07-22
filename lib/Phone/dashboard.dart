@@ -8,13 +8,13 @@ import 'package:permission_handler/permission_handler.dart';
 import 'sidebar.dart';
 import '../notifications/notif_modal.dart';
 import '../notifications/user_modal.dart';
-import '../local_database_helper.dart'; // Add this import
+import '../local_database_helper.dart';
 import '../login.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int? userId;
 
-  const DashboardScreen({Key? key, this.userId}) : super(key: key);
+  const DashboardScreen({super.key, this.userId});
 
   @override
   _DashboardScreenState createState() => _DashboardScreenState();
@@ -23,27 +23,21 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   bool _showNotifications = false;
   bool _showUserModal = false; // Add this
+  late GlobalKey<AnimatedListState> _animatedListKey; // Add this
   late List<Map<String, dynamic>> _notifications;
+  late GlobalKey<NotificationModalState> _notificationModalKey;
   bool _isFabVisible = true;
   Map<String, dynamic> _userData = {
-    // Add this
     'businessName': 'Loading...',
     'email': 'loading@example.com',
   };
 
   late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
 
-  void _clearReadNotifications() {
-    setState(() {
-      _notifications.removeWhere(
-        (notification) => notification['read'] == true,
-      );
-    });
-    _saveNotifications();
-  }
-
   @override
   void initState() {
+    _animatedListKey = GlobalKey<AnimatedListState>(); // Initialize
+    _notificationModalKey = GlobalKey<NotificationModalState>();
     super.initState();
 
     flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -214,6 +208,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _clearReadNotifications() async {
+    final readIndices = <int>[];
+    for (int i = 0; i < _notifications.length; i++) {
+      if (_notifications[i]['read']) {
+        readIndices.add(i);
+      }
+    }
+
+    readIndices.sort((a, b) => b.compareTo(a));
+
+    for (final index in readIndices) {
+      final removedItem = _notifications.removeAt(index);
+      _animatedListKey.currentState?.removeItem(
+        index,
+        (context, animation) => SizeTransition(
+          sizeFactor: animation,
+          child: _buildRemovedItem(removedItem),
+        ),
+        duration: const Duration(milliseconds: 300),
+      );
+    }
+
+    await _saveNotifications();
+
+    // Trigger modal close animation after clearing items
+    if (readIndices.isNotEmpty && _showNotifications) {
+      await NotificationModal.close(context);
+    }
+  }
+
+  Widget _buildRemovedItem(Map<String, dynamic> notification) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.notifications, color: Colors.grey),
+      ),
+      title: Text(notification['title'], style: TextStyle(color: Colors.grey)),
+      subtitle: Text(notification['message']),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -348,7 +389,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 // Dashboard Cards
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: EdgeInsets.all(16),
+                    padding: EdgeInsets.all(10),
                     child: Column(
                       children: [
                         // First Row
@@ -575,9 +616,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
 
             // Notification panel
+            // In the build method where NotificationModal is used:
             if (_showNotifications)
               NotificationModal(
+                key: _notificationModalKey,
                 notifications: _notifications,
+                animatedListKey: _animatedListKey,
+                onDeleteIndices: (List<int> indices) {
+                  // delete the items from your list
+                  indices.sort((a, b) => b.compareTo(a)); // descending
+                  for (final i in indices) {
+                    _notifications.removeAt(i);
+                  }
+                  setState(() {});
+                },
                 onClose: () {
                   setState(() {
                     _showNotifications = false;
@@ -598,10 +650,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   });
                   _saveNotifications();
                 },
-                // Add the new callback
-                onClearReadNotifications: _clearReadNotifications,
-              ),
+                onClearReadNotifications: () async {
+                  // Clear read notifications first
+                  await _clearReadNotifications();
 
+                  // Then close the modal with animation
+                  if (mounted) {
+                    setState(() {
+                      _showNotifications = false;
+                      _isFabVisible = true;
+                    });
+                  }
+                },
+              ),
             // User modal
             // User modal - now covers entire screen
             if (_showUserModal)

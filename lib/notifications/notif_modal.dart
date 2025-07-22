@@ -6,7 +6,9 @@ class NotificationModal extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(int) onMarkAsRead;
   final VoidCallback onMarkAllAsRead;
-  final VoidCallback onClearReadNotifications;
+  final Future<void> Function() onClearReadNotifications; // Updated to Future
+  final GlobalKey<AnimatedListState> animatedListKey;
+  final void Function(List<int>) onDeleteIndices; // <- NEW
 
   const NotificationModal({
     Key? key,
@@ -14,14 +16,23 @@ class NotificationModal extends StatefulWidget {
     required this.onClose,
     required this.onMarkAsRead,
     required this.onMarkAllAsRead,
-    required this.onClearReadNotifications,
+    required this.onClearReadNotifications, // Updated type
+    required this.animatedListKey,
+    required this.onDeleteIndices,
   }) : super(key: key);
 
+  static Future<void> close(BuildContext context) async {
+    final state = context.findAncestorStateOfType<NotificationModalState>();
+    if (state != null) {
+      await state._closeModal();
+    }
+  }
+
   @override
-  _NotificationModalState createState() => _NotificationModalState();
+  NotificationModalState createState() => NotificationModalState();
 }
 
-class _NotificationModalState extends State<NotificationModal>
+class NotificationModalState extends State<NotificationModal>
     with SingleTickerProviderStateMixin {
   static const double _maxHeight = 400;
   static const double _minHeight = 0;
@@ -51,7 +62,6 @@ class _NotificationModalState extends State<NotificationModal>
       ),
     );
 
-    // Start the open animation
     _controller.forward();
   }
 
@@ -64,6 +74,65 @@ class _NotificationModalState extends State<NotificationModal>
   Future<void> _closeModal() async {
     await _controller.reverse();
     widget.onClose();
+  }
+
+  Future<void> _handleClear() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Confirm Clear'),
+        content: const Text(
+          'Are you sure you want to clear all read notifications?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final listState = widget.animatedListKey.currentState;
+    if (listState == null) return;
+
+    // Indices of *read* notifications (iterate backwards)
+    final readIndices = List<int>.generate(
+      widget.notifications.length,
+      (i) => i,
+    ).reversed.where((i) => widget.notifications[i]['read'] as bool).toList();
+
+    if (readIndices.isEmpty) return;
+
+    // Animate them out
+    for (final idx in readIndices) {
+      final removed = widget.notifications[idx];
+      listState.removeItem(
+        idx,
+        (context, animation) => SizeTransition(
+          sizeFactor: animation,
+          child: _buildNotificationItem(removed, idx),
+        ),
+        duration: const Duration(milliseconds: 200),
+      );
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    // Tell parent to delete exactly these indices
+    widget.onDeleteIndices(readIndices);
+
+    // Wait one frame so the modal rebuilds with the new (possibly empty) list
+    await WidgetsBinding.instance.endOfFrame;
+
+    // Now close if nothing is left
+    if (widget.notifications.isEmpty) {
+      await _closeModal();
+    }
   }
 
   @override
@@ -166,12 +235,16 @@ class _NotificationModalState extends State<NotificationModal>
                     style: TextStyle(color: Colors.grey),
                   ),
                 )
-              : ListView.builder(
+              : AnimatedList(
+                  key: widget.animatedListKey,
+                  initialItemCount: widget.notifications.length,
                   padding: EdgeInsets.zero,
-                  itemCount: widget.notifications.length,
-                  itemBuilder: (context, index) {
+                  itemBuilder: (context, index, animation) {
                     final notification = widget.notifications[index];
-                    return _buildNotificationItem(notification, index);
+                    return SizeTransition(
+                      sizeFactor: animation,
+                      child: _buildNotificationItem(notification, index),
+                    );
                   },
                 ),
         ),
@@ -198,45 +271,11 @@ class _NotificationModalState extends State<NotificationModal>
               ),
               const SizedBox(width: 8),
               TextButton(
-                onPressed: () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: Text('Confirm Clear'),
-                      content: Text(
-                        'Are you sure you want to clear all read notifications?',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(false),
-                          child: Text('Cancel'),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(true),
-                          child: Text(
-                            'Clear',
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (confirm == true) {
-                    final readIndexes = <int>[];
-                    for (int i = 0; i < widget.notifications.length; i++) {
-                      if (widget.notifications[i]['read'] == true) {
-                        readIndexes.add(i);
-                      }
-                    }
-                    if (readIndexes.isNotEmpty) {
-                      // Notify parent to remove read notifications
-                      for (var i in readIndexes.reversed) {
-                        widget.onMarkAsRead(i);
-                      }
-                    }
-                  }
-                },
-                child: Text('Clear all', style: TextStyle(color: Colors.red)),
+                onPressed: _handleClear, // Use new handler
+                child: const Text(
+                  'Clear all',
+                  style: TextStyle(color: Colors.red),
+                ),
               ),
             ],
           ),

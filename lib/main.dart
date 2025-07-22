@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/services.dart';
 import 'login.dart';
 import 'local_database_helper.dart';
 import 'Phone/dashboard.dart' as dashboard;
-import 'android_background_service.dart';
 
 Future<void> loadEnv() async {
   await dotenv.load();
@@ -12,6 +12,7 @@ Future<void> loadEnv() async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky, overlays: []);
   await loadEnv();
 
   // Comment out background service initialization to test if it causes build hang
