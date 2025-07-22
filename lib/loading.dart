@@ -18,27 +18,30 @@ class LoadingAnimation extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Blur effect applied to everything behind
+        // 1. transparent layer – guarantees we add no tint
+        const ColoredBox(color: Colors.transparent),
+
+        // 2. blur what’s underneath
         BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0),
-          child: const SizedBox.expand(), // Invisible but needed for blur
+          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+          child: const SizedBox.expand(),
         ),
 
-        // Only the spinner + optional text
+        // 3. spinner & text
         Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CircularProgressIndicator(color: Colors.white),
+              const CircularProgressIndicator(color: Color.fromARGB(255, 0, 0, 0)),
               const SizedBox(height: 12),
               Text(
                 message,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Color.fromARGB(255, 0, 0, 0),
                   fontSize: 16,
                   shadows: [
                     Shadow(
-                      color: Colors.black54,
+                      color: Color.fromARGB(136, 94, 94, 94),
                       blurRadius: 4,
                       offset: Offset(1, 1),
                     ),
