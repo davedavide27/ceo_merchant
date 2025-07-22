@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../local_database_helper.dart';
 
 class UserModal extends StatefulWidget {
   final String businessName;
@@ -58,7 +59,6 @@ class _UserModalState extends State<UserModal>
   }
 
   Future<void> _handleLogout() async {
-    // Show confirmation dialog
     final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
@@ -78,38 +78,36 @@ class _UserModalState extends State<UserModal>
       ),
     );
 
-    // Proceed only if confirmed
     if (confirm == true) {
-      // Close user modal
       await _controller.reverse();
       widget.onClose();
 
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          content: Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 20),
-                Text('Logging out...'),
-              ],
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 20),
+                  Text('Logging out...'),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
+      }
 
-      // Simulate logout process
       await Future.delayed(const Duration(seconds: 2));
-
-      // Close loading dialog
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
 
-      // Execute logout callback
+      // 1. wipe local data
+      await LocalDatabaseHelper().clearUserSession();
+      // 2. let parent know we’re done
       widget.onLogout();
     }
   }

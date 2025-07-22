@@ -123,17 +123,21 @@ class _LoginState extends State<Login> {
                     });
                   }
 
-                  // Create new user data
+
                   final newUserData = {
                     'user_id': userId.toString(),
                     'business_name': businessName,
                     'email': email,
                   };
 
-                  // Update app state
-                  widget.updateUserData(newUserData);
-                  // Set login flag true on successful login
-                  await LocalDatabaseHelper().setLoginFlag(true);
+                  widget.updateUserData(newUserData);   // only updates app state
+                  await LocalDatabaseHelper().setLoginFlag(true); // only sets flag
+
+                  await LocalDatabaseHelper().saveUser(
+                    userId.toString(),
+                    businessName,
+                    email,
+                  );
 
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) return;
