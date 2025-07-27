@@ -2,14 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 class NotificationModal extends StatefulWidget {
-  final List<Map<String, dynamic>> notifications;
-  final VoidCallback onClose;
-  final void Function(int) onMarkAsRead;
-  final VoidCallback onMarkAllAsRead;
-  final Future<void> Function() onClearReadNotifications; // Updated to Future
-  final GlobalKey<AnimatedListState> animatedListKey;
-  final void Function(List<int>) onDeleteIndices; // <- NEW
-
   const NotificationModal({
     Key? key,
     required this.notifications,
@@ -21,26 +13,40 @@ class NotificationModal extends StatefulWidget {
     required this.onDeleteIndices,
   }) : super(key: key);
 
+  final GlobalKey<AnimatedListState> animatedListKey;
+  final List<Map<String, dynamic>> notifications;
+  final Future<void> Function() onClearReadNotifications; // Updated to Future
+  final VoidCallback onClose;
+  final void Function(List<int>) onDeleteIndices; // <- NEW
+  final VoidCallback onMarkAllAsRead;
+  final void Function(int) onMarkAsRead;
+
+  @override
+  NotificationModalState createState() => NotificationModalState();
+
   static Future<void> close(BuildContext context) async {
     final state = context.findAncestorStateOfType<NotificationModalState>();
     if (state != null) {
       await state._closeModal();
     }
   }
-
-  @override
-  NotificationModalState createState() => NotificationModalState();
 }
 
 class NotificationModalState extends State<NotificationModal>
     with SingleTickerProviderStateMixin {
+  static const Duration _animationDuration = Duration(milliseconds: 300);
   static const double _maxHeight = 400;
   static const double _minHeight = 0;
-  static const Duration _animationDuration = Duration(milliseconds: 300);
 
   late AnimationController _controller;
   late Animation<double> _heightAnimation;
   late Animation<double> _opacityAnimation;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -63,12 +69,6 @@ class NotificationModalState extends State<NotificationModal>
     );
 
     _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   Future<void> _closeModal() async {
@@ -133,46 +133,6 @@ class NotificationModalState extends State<NotificationModal>
     if (widget.notifications.isEmpty) {
       await _closeModal();
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final unreadCount = widget.notifications.where((n) => !n['read']).length;
-
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          final borderRadius = 20 * (_heightAnimation.value / _maxHeight);
-
-          return Container(
-            height: _heightAnimation.value,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: _heightAnimation.value > 10
-                  ? [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 10,
-                        spreadRadius: 2,
-                      ),
-                    ]
-                  : null,
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(borderRadius),
-                bottomRight: Radius.circular(borderRadius),
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Opacity(opacity: _opacityAnimation.value, child: child),
-          );
-        },
-        child: _buildContent(unreadCount),
-      ),
-    );
   }
 
   Widget _buildContent(int unreadCount) {
@@ -319,6 +279,53 @@ class NotificationModalState extends State<NotificationModal>
       onTap: () {
         widget.onMarkAsRead(index);
       },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unreadCount = widget.notifications.where((n) => !n['read']).length;
+    final mediaQuery = MediaQuery.of(context);
+    final isLandscape = mediaQuery.orientation == Orientation.landscape;
+
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final borderRadius = 20 * (_heightAnimation.value / _maxHeight);
+
+          Widget container = Container(
+            height: isLandscape
+                ? _heightAnimation.value * 0.9
+                : _heightAnimation.value,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: _heightAnimation.value > 10
+                  ? [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 10,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(borderRadius),
+                bottomRight: Radius.circular(borderRadius),
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Opacity(opacity: _opacityAnimation.value, child: child),
+          );
+
+          return container;
+        },
+        child: _buildContent(unreadCount),
+      ),
     );
   }
 }

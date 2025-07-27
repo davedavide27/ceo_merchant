@@ -629,6 +629,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     _notifications.removeAt(i);
                   }
                   setState(() {});
+                  _saveNotifications();
                 },
                 onClose: () {
                   setState(() {
