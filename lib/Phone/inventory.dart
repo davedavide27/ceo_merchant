@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'package:ceo_merchant/notifications/notif_modal.dart';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'sidebar.dart';
 import '../local_database_helper.dart';
 
@@ -18,10 +20,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
   String? _businessName;
   final LocalDatabaseHelper _dbHelper = LocalDatabaseHelper();
 
+  // Notifications state
+  List<Map<String, dynamic>> _notifications = [];
+  final GlobalKey<AnimatedListState> _animatedListKey =
+      GlobalKey<AnimatedListState>();
+  bool _showNotificationModal = false;
+
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadNotificationsFromPrefs();
   }
 
   void _loadUserData() async {
@@ -40,6 +49,113 @@ class _InventoryScreenState extends State<InventoryScreen> {
       print("[Inventory] ERROR: No user data found");
       setState(() => isLoading = false);
     }
+  }
+
+  Widget _buildInventoryListItem(Map<String, dynamic> item) {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.shade300,
+            blurRadius: 6,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Text(
+              item['name'] ?? 'Unknown',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+                color: Colors.grey[800],
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Center(
+              child: Text(
+                '${item['total_quantity'] ?? 0}',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  color: Colors.deepOrange,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Center(
+              child: Text(
+                '₱${(item['average_price'] ?? 0).toDouble().toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  color: Colors.grey[800],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loadNotificationsFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? notificationsJson = prefs.getString('notifications');
+    if (notificationsJson != null) {
+      final List<dynamic> decoded = jsonDecode(notificationsJson);
+      setState(() {
+        _notifications = decoded
+            .map((e) => {
+                  'title': e['title'],
+                  'message': e['message'],
+                  'time': DateTime.parse(e['time']),
+                  'read': e['read'],
+                })
+            .toList()
+            .cast<Map<String, dynamic>>();
+      });
+    }
+  }
+
+  Future<void> _saveNotificationsToPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encoded = jsonEncode(_notifications
+        .map((e) => {
+              'title': e['title'],
+              'message': e['message'],
+              'time': (e['time'] as DateTime).toIso8601String(),
+              'read': e['read'],
+            })
+        .toList());
+    await prefs.setString('notifications', encoded);
+  }
+
+  void _handleNotification(Map<String, dynamic> notification) {
+    print('[Inventory] Handling notification: $notification');
+    final newNotification = {
+      'title': notification['title'] ?? 'Notification',
+      'message': notification['message'] ?? '',
+      'time':
+          DateTime.tryParse(notification['timestamp'] ?? '') ?? DateTime.now(),
+      'read': false,
+    };
+    setState(() {
+      _notifications.insert(0, newNotification);
+      _animatedListKey.currentState?.insertItem(0);
+    });
+    _saveNotificationsToPrefs();
   }
 
   void _connectWebSocket() {
@@ -89,6 +205,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
       if (response['type'] == 'inventory_data' && response['success'] == true) {
         _handleInventoryData(response);
+      } else if (response['type'] == 'notification') {
+        _handleNotification(response);
       } else if (response['type'] == 'error') {
         print('[Inventory] Server error: ${response['message']}');
         setState(() => isLoading = false);
@@ -408,213 +526,180 @@ class _InventoryScreenState extends State<InventoryScreen> {
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-      ),
-      drawer: Sidebar(initialSelectedIndex: 6),
-      body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Colors.deepOrange),
-            )
-          : Column(
+        actions: [
+          IconButton(
+            icon: Stack(
               children: [
-                // Enhanced header
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
+                Icon(Icons.notifications, color: Colors.white),
+                if (_notifications.any((n) => !n['read']))
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
                       ),
-                    ],
+                      constraints: BoxConstraints(minWidth: 16, minHeight: 16),
+                      child: Text(
+                        '${_notifications.where((n) => !n['read']).length}',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: Text(
-                          'INGREDIENT',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 2,
-                        child: Center(
-                          child: Text(
-                            'QUANTITY',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.deepOrange,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 2,
-                        child: Center(
-                          child: Text(
-                            'AVG PRICE',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Inventory list
-                Expanded(
-                  child: inventoryItems.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.inventory_2,
-                                size: 80,
-                                color: Colors.grey[300],
-                              ),
-                              SizedBox(height: 20),
-                              Text(
-                                'No Ingredients Found',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              SizedBox(height: 10),
-                              Text(
-                                'Inventory items will appear once added in the system',
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: EdgeInsets.only(top: 8, bottom: 24),
-                          itemCount: inventoryItems.length,
-                          itemBuilder: (context, index) =>
-                              _buildInventoryItem(inventoryItems[index]),
-                        ),
-                ),
               ],
             ),
-    );
-  }
-
-  Widget _buildInventoryItem(Map<String, dynamic> item) {
-    final isOverLimit =
-        (item['price_limit'] ?? 0) > 0 &&
-        (item['average_price'] ?? 0) > (item['price_limit'] ?? 0);
-
-    return InkWell(
-      onTap: () => _showPurchaseDetails(item),
-      child: Card(
-        margin: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            children: [
-              // Ingredient name with alert indicator
-              Expanded(
-                flex: 3,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 16),
-                  child: Row(
-                    children: [
-                      Text(
-                        item['name'] ?? 'Unknown',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      if (isOverLimit)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: Icon(
-                            Icons.warning_amber,
-                            size: 18,
-                            color: Colors.orange,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Quantity display
-              Expanded(
-                flex: 2,
-                child: Center(
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.deepOrange.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${item['total_quantity'] ?? 0}',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.deepOrange,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Average price display
-              Expanded(
-                flex: 2,
-                child: Center(
-                  child: Text(
-                    '₱${item['average_price']?.toStringAsFixed(2) ?? '0.00'}',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ),
-            ],
+            onPressed: () {
+              setState(() {
+                _showNotificationModal = true;
+              });
+            },
           ),
-        ),
+        ],
+      ),
+      drawer: Sidebar(initialSelectedIndex: 6),
+      body: Stack(
+        children: [
+          isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.deepOrange),
+                )
+              : Column(
+                  children: [
+                    // Enhanced header
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black12,
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              'INGREDIENT',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Center(
+                              child: Text(
+                                'QUANTITY',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.deepOrange,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Center(
+                              child: Text(
+                                'AVG PRICE',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Inventory list
+                    Expanded(
+                      child: inventoryItems.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.inventory_2,
+                                    size: 80,
+                                    color: Colors.grey[300],
+                                  ),
+                                  SizedBox(height: 20),
+                                  Text(
+                                    'No Ingredients Found',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      color: Colors.grey,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  SizedBox(height: 10),
+                                  Text(
+                                    'Inventory items will appear once added in the system',
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: EdgeInsets.only(top: 8, bottom: 24),
+                              itemCount: inventoryItems.length,
+                              itemBuilder: (context, index) =>
+                                  _buildInventoryListItem(inventoryItems[index]),
+                            ),
+                    ),
+                  ],
+                ),
+          if (_showNotificationModal)
+            NotificationModal(
+              notifications: _notifications,
+              animatedListKey: _animatedListKey,
+              onClose: () {
+                setState(() {
+                  _showNotificationModal = false;
+                });
+              },
+              onMarkAsRead: (index) {
+                setState(() {
+                  _notifications[index]['read'] = true;
+                });
+              },
+              onMarkAllAsRead: () {
+                setState(() {
+                  for (var n in _notifications) {
+                    n['read'] = true;
+                  }
+                });
+              },
+              onClearReadNotifications: () async {
+                setState(() {
+                  _notifications.removeWhere((n) => n['read']);
+                });
+              },
+              onDeleteIndices: (indices) {
+                setState(() {
+                  indices.sort((a, b) => b.compareTo(a));
+                  for (var idx in indices) {
+                    _notifications.removeAt(idx);
+                  }
+                });
+              },
+            ),
+        ],
       ),
     );
   }
-
-  @override
-  void dispose() {
-    _channel.sink.close();
-    super.dispose();
-  }
-}
-
-// Helper method to safely parse double values
-double _parseDouble(dynamic value) {
-  if (value is String) {
-    return double.tryParse(value) ?? 0.0;
-  } else if (value is num) {
-    return value.toDouble();
-  }
-  return 0.0;
-}
-
-// Helper method to safely parse int values
-int _parseInt(dynamic value) {
-  if (value is String) {
-    return int.tryParse(value) ?? 0;
-  } else if (value is num) {
-    return value.toInt();
-  }
-  return 0;
 }

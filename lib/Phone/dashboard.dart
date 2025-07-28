@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'sidebar.dart';
 import '../notifications/notif_modal.dart';
 import '../notifications/user_modal.dart';
@@ -33,6 +35,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   };
 
   late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
+  WebSocketChannel? _channel;
 
   @override
   void initState() {
@@ -68,6 +71,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadNotifications();
     _loadUserData();
     timeago.setLocaleMessages('en', timeago.EnMessages());
+
+    _connectToWebSocket();
   }
 
   void _requestPermissions() async {
@@ -152,6 +157,112 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }).toList(),
     );
     prefs.setString('notifications', notificationsJson);
+  }
+
+  void _connectToWebSocket() async {
+    String? websocketUrl = dotenv.env['WEBSOCKET_URL'];
+    if (websocketUrl == null || websocketUrl.isEmpty) {
+      print('Error: WEBSOCKET_URL is not configured');
+      return;
+    }
+
+    try {
+      _channel = WebSocketChannel.connect(Uri.parse(websocketUrl));
+
+      _channel!.stream.listen(
+        (message) => _handleWebSocketMessage(message),
+        onDone: () => print('WebSocket connection closed'),
+        onError: (error) => print('WebSocket error: $error'),
+      );
+    } catch (e) {
+      print('WebSocket initialization error: $e');
+    }
+  }
+
+  void _handleWebSocketMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message);
+
+      if (data['type'] == 'notification' && data['userId'] == widget.userId) {
+        final title = data['title'] ?? 'Notification';
+        final messageContent = data['message'] ?? '';
+
+        // Check if this notification is for added ingredients by title or message content
+        final isAddedIngredients = title.toLowerCase().contains('ingredient') ||
+            messageContent.toLowerCase().contains('ingredient');
+
+        setState(() {
+          _notifications.insert(0, {
+            'title': title,
+            'message': messageContent,
+            'time': DateTime.now(),
+            'read': false,
+          });
+        });
+        _saveNotifications();
+
+        _showDeviceNotification(title, messageContent);
+      }
+    } catch (e) {
+      print('Error handling WebSocket message: $e');
+    }
+  }
+
+  void _addAddedIngredientsNotification() async {
+    final title = 'New Ingredients Added';
+    final message = 'New ingredients have been added to the inventory.';
+
+    setState(() {
+      _notifications.insert(0, {
+        'title': title,
+        'message': message,
+        'time': DateTime.now(),
+        'read': false,
+      });
+    });
+    _saveNotifications();
+
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+          'ceo_merchant_channel',
+          'Ceo Merchant Notifications',
+          channelDescription: 'Notification channel for Ceo Merchant app',
+          importance: Importance.high,
+          priority: Priority.high,
+          ticker: 'ticker',
+        );
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+    );
+    await flutterLocalNotificationsPlugin.show(
+      _notificationIdCounter++,
+      title,
+      message,
+      platformChannelSpecifics,
+      payload: jsonEncode({'title': title, 'message': message}),
+    );
+  }
+
+  Future<void> _showDeviceNotification(String title, String message) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+          'ceo_merchant_channel',
+          'Ceo Merchant Notifications',
+          channelDescription: 'Notification channel for Ceo Merchant app',
+          importance: Importance.high,
+          priority: Priority.high,
+          ticker: 'ticker',
+        );
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+    );
+    await flutterLocalNotificationsPlugin.show(
+      _notificationIdCounter++,
+      title,
+      message,
+      platformChannelSpecifics,
+      payload: jsonEncode({'title': title, 'message': message}),
+    );
   }
 
   int _notificationIdCounter = 0;
